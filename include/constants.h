@@ -1,0 +1,13 @@
+#ifndef CONSTANTS_H
+#define CONSTANTS_H
+
+#define DEFAULT_CHUNK_SIZE 131072
+#define DEFAULT_THREAD_COUNT 2
+#define MAX_SEGMENT_SIZE 100
+constexpr int CHECKSUM_UPPER_BOUND = 64 * 1024;
+constexpr int CHECKSUM_LOWER_BOUND = 8 * 1024 * 1024;
+
+constexpr int MAX_CHECKSUM_FILE_SIZE = 512 * 1024 * 1024;
+constexpr int CHECKSUM_SCALE_FACTOR = 64;
+
+#endif

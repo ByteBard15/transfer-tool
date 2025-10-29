@@ -9,6 +9,8 @@
 #include <chrono>
 #include <thread>
 
+#include "utils.h"
+
 enum class LogLevel {
     DEBUG,
     INFO,
@@ -16,7 +18,7 @@ enum class LogLevel {
     ERROR
 };
 
-inline const char * to_string(const LogLevel level) {
+inline const char * level_to_string(const LogLevel level) {
     switch (level) {
         case LogLevel::INFO: return "INFO";
         case LogLevel::WARN: return "WARN";
@@ -30,7 +32,7 @@ inline bool should_log(LogLevel current, LogLevel level) {
     return static_cast<int>(level) >= static_cast<int>(current);
 }
 
-class Logger {
+class logger final {
 private:
     LogLevel level = LogLevel::INFO;
     std::string location = "Logger";
@@ -43,30 +45,39 @@ private:
         return os.str();
     }
 public:
-    explicit Logger(const LogLevel level = LogLevel::INFO, std::string loc = "Logger", std::ostream& s = std::cout)
+    explicit logger(const LogLevel level = LogLevel::INFO, std::string loc = "Logger", std::ostream& s = std::cout)
         : level(level), location(std::move(loc)), stream(s) {}
-    virtual ~Logger() = default;
+    virtual ~logger() = default;
 
-    virtual void log(const LogLevel level, const std::string& message) {
+    void log(const LogLevel level, const std::string& message) {
         if (!should_log(level, this->level)) {
             return;
         }
         const std::string formatted_message = format(level, message);
         std::lock_guard<std::mutex> lock(mutex_);
-        stream << formatted_message;
+        stream << formatted_message << std::endl;
     }
 
-    virtual std::string format(const LogLevel level, const std::string &message) {
+    std::string format(const LogLevel level, const std::string &message) {
         auto now = std::chrono::system_clock::now();
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
         auto f_time = std::format("{:%Y-%m-%d %H:%M:%S}.{:03}", now, ms.count());
 
-        return std::format("{} [location:{}] [thread:{}] [{}] {}\n",
-                           f_time, location, get_current_thread_id(), to_string(level), message);
+        return std::format("{} [location:{}] [thread:{}] [{}] {}",
+                           f_time, location, get_current_thread_id(), level_to_string(level), message);
     }
 
     void info(const std::string& message) {
         log(LogLevel::INFO, message);
+    }
+
+    template<typename... Args>
+    void info(const std::string& message, Args... args) {
+        std::string builder = " ";
+        ((builder += to_string(args) + " "), ...);
+
+        const auto log_line = message + builder;
+        log(LogLevel::INFO, log_line);
     }
 
     void debug(const std::string& message) {

@@ -1,6 +1,7 @@
 #ifndef TYPES_H
 #define TYPES_H
+#include <cstdint>
 
-typedef unsigned long int file_size_t;
+typedef std::uint64_t file_size_t;
 
 #endif

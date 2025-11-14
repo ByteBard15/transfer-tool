@@ -1,6 +1,7 @@
 #include "parser.h"
 
 #include <complex>
+#include <filesystem>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -21,10 +22,6 @@ std::string read_name(const char *(&arg), int &ptr) {
 void set_config(ts_config &config, const std::string &name, std::string &value) {
     if (name == "-p" || name == "--progress") {
         config.show_progress = true;
-        return;
-    }
-    if (name == "-t" || name == "--threads") {
-        config.thread_count = std::stoi(value);
         return;
     }
     if (name == "--source" || name == "-s") {
@@ -64,13 +61,8 @@ ts_config parse_args(const int& argc, const char *const argv[]) {
         if (i < argc && value.empty()) {
             value = argv[++i];
         }
-
-        if (name == "-t" || name == "--threads") {
-            config.thread_count = std::stoi(value);
-            continue;
-        }
-        if (name == "-cs" || name == "--chunk-size") {
-            config.chunk_size = std::stoi(value);
+        if (name == "-f" || name == "--filename") {
+            config.filename = value;
             continue;
         }
         if (name == "--source" || name == "-s") {

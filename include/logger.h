@@ -34,7 +34,7 @@ inline bool should_log(LogLevel current, LogLevel level) {
 
 class logger final {
 private:
-    LogLevel level = LogLevel::INFO;
+    LogLevel level = LogLevel::ERROR;
     std::string location = "Logger";
     std::ostream& stream = std::cout;
     std::mutex mutex_;
@@ -45,17 +45,17 @@ private:
         return os.str();
     }
 public:
-    explicit logger(const LogLevel level = LogLevel::INFO, std::string loc = "Logger", std::ostream& s = std::cout)
+    explicit logger(const LogLevel level = LogLevel::ERROR, std::string loc = "Logger", std::ostream& s = std::cout)
         : level(level), location(std::move(loc)), stream(s) {}
     virtual ~logger() = default;
 
     void log(const LogLevel level, const std::string& message) {
-        if (!should_log(level, this->level)) {
+        /*if (!should_log(level, this->level)) {
             return;
         }
         const std::string formatted_message = format(level, message);
         std::lock_guard<std::mutex> lock(mutex_);
-        stream << formatted_message << std::endl;
+        stream << formatted_message << std::endl;*/
     }
 
     std::string format(const LogLevel level, const std::string &message) {

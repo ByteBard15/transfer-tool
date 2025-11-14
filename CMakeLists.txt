@@ -12,7 +12,10 @@ file(GLOB_RECURSE SRC_FILES
 add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 find_package(OpenSSL REQUIRED)
-target_link_libraries(transfer-tool PRIVATE OpenSSL::Crypto)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBUUID REQUIRED uuid)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${LIBUUID_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto)
 
 target_include_directories(
         ${PROJECT_NAME}

@@ -1,6 +1,7 @@
 #ifndef FILE_H
 #define FILE_H
 #include <fstream>
+#include <mutex>
 #include <string>
 
 #include "types.h"
@@ -12,32 +13,29 @@
 #include "constants.h"
 
 struct segment_status {
-    std::string segment_id;
     const file_size_t start_byte;
     const file_size_t end_byte;
 
 private:
-    std::atomic<file_size_t> last_copied_;
+    file_size_t copied_offset_;
     std::atomic<bool> completed_;
 
 public:
-    segment_status(const std::string &segment_id, const file_size_t &start,
-                   const file_size_t &end): segment_id(segment_id), start_byte(start),
-                                            end_byte(end), last_copied_(0), completed_(false) {
+    segment_status(const file_size_t &start,
+                   const file_size_t &end): start_byte(start),
+                                            end_byte(end), copied_offset_(0), completed_(false) {
     }
 
     void add_copied(const file_size_t &delta) noexcept {
-        last_copied_.fetch_add(delta, std::memory_order_relaxed);
+        copied_offset_ += delta;
     }
 
-    void set_last_copied(file_size_t val) noexcept {
-        auto old_val = last_copied_.load(std::memory_order_relaxed);
-        while (!last_copied_.compare_exchange_weak(old_val, val, std::memory_order_relaxed)) {
-        }
+    void set_copied_offset(file_size_t val) noexcept {
+        copied_offset_ = val;
     }
 
-    file_size_t get_last_copied() const noexcept {
-        return last_copied_.load(std::memory_order_relaxed);
+    file_size_t get_copied_offset() const noexcept {
+        return copied_offset_;
     }
 
     void set_completed(bool completed) noexcept {
@@ -50,30 +48,28 @@ public:
 
     nlohmann::json to_json() const {
         return {
-            {"segment_id", segment_id},
             {"start_byte", start_byte},
             {"end_byte", end_byte},
-            {"last_copied_byte", last_copied_.load(std::memory_order_relaxed)},
+            {"last_copied_byte", copied_offset_},
             {"completed", completed_.load(std::memory_order_relaxed)}
         };
     }
 
-    static segment_status from_json(const nlohmann::json &j) {
-        const auto segment_id = j.value("segment_id", "");
+    static std::shared_ptr<segment_status> from_json(const nlohmann::json &j) {
         const auto start_byte = j.value("start_byte", 0ULL);
         const auto end_byte = j.value("end_byte", 0ULL);
         const auto last_copied_byte = j.value("last_copied_byte", 0ULL);
         const auto completed = j.value("completed", false);
 
-        segment_status seg(segment_id, start_byte, end_byte);
-        seg.set_last_copied(last_copied_byte);
-        seg.set_completed(completed);
+        std::shared_ptr<segment_status> seg = std::make_shared<segment_status>(start_byte, end_byte);
+        seg->set_copied_offset(last_copied_byte);
+        seg->set_completed(completed);
         return seg;
     }
 
-    segment_status(const segment_status &s_status): segment_id(s_status.segment_id), start_byte(s_status.start_byte),
+    segment_status(const segment_status &s_status): start_byte(s_status.start_byte),
                                                     end_byte(s_status.end_byte),
-                                                    last_copied_(s_status.get_last_copied()),
+                                                    copied_offset_(s_status.get_copied_offset()),
                                                     completed_(s_status.get_completed()) {
     }
 };
@@ -82,10 +78,14 @@ struct file_transfer_status {
     const std::string source_file;
     const std::string destination_file;
     const file_size_t total_size;
-    std::atomic<file_size_t> total_copied_;
     const std::string checksum;
-    std::vector<std::shared_ptr<segment_status>> segments;
+    std::unordered_map<std::string, std::shared_ptr<segment_status> > segments;
 
+private:
+    std::mutex lock_;
+    file_size_t total_copied_;
+
+public:
     file_transfer_status()
         : total_size(0), total_copied_(0) {
     }
@@ -97,59 +97,75 @@ struct file_transfer_status {
                                                        total_copied_(total_copied), checksum(checksum) {
     }
 
-    file_size_t get_total_copied() const noexcept {
-        return total_copied_.load(std::memory_order_relaxed);
+    file_size_t get_total_copied() noexcept {
+        std::lock_guard<std::mutex> lock(lock_);
+        return total_copied_;
     }
 
-    void add_copied_bytes(const file_size_t& copied) {
-        total_copied_.fetch_add(copied, std::memory_order_relaxed);
+    std::shared_ptr<segment_status> get_segment(const std::string &segment_id) {
+        auto it = segments.find(segment_id);
+        if (it == segments.end()) {
+            return nullptr;
+        }
+        return it->second;
     }
 
-    std::shared_ptr<segment_status> get_segment(segment_id)
+    void add_copied_byte(const std::string &segment_id, const file_size_t &copied) {
+        auto it = segments.find(segment_id);
+        if (it == segments.end()) {
+            throw std::runtime_error("Failed to find segment");
+        }
+        {
+            auto segment = it->second;
+            std::lock_guard<std::mutex> lock(lock_);
+            segment->add_copied(copied);
+            total_copied_ += copied;
+        }
+    }
 
     nlohmann::json to_json() const {
         nlohmann::json j;
         j["source_file"] = source_file;
         j["destination_file"] = destination_file;
         j["total_size"] = total_size;
-        j["total_copied"] = total_copied_.load(std::memory_order_relaxed);
+        j["total_copied"] = total_copied_;
         j["checksum"] = checksum;
 
-        j["segments"] = nlohmann::json::array();
-        for (const auto &seg: segments) {
-            j["segments"].push_back(seg->to_json());
+        j["segments"] = nlohmann::json::object();
+        for (const auto &[id, seg]: segments) {
+            j["segments"][id] = seg->to_json();
         }
 
         return j;
     }
 
-    static file_transfer_status from_json(const nlohmann::json &j) {
+    static std::shared_ptr<file_transfer_status> from_json(const nlohmann::json &j) {
         const auto source_file = j.value("source_file", "");
         const auto destination_file = j.value("destination_file", "");
         const auto total_size = j.value("total_size", 0ULL);
         const auto total_copied = j.value("total_copied", 0ULL);
         const auto checksum = j.value("checksum", "");
 
-        file_transfer_status ft_status(source_file, destination_file, total_size, total_copied, checksum);
+        std::shared_ptr<file_transfer_status> ft_status = std::make_shared<file_transfer_status>(source_file, destination_file, total_size, total_copied, checksum);
 
-        if (j.contains("segments") && j["segments"].is_array()) {
-            for (const auto &item: j["segments"]) {
-                ft_status.segments.push_back(std::make_shared<segment_status>(segment_status::from_json(item)));
+        if (j.contains("segments") && j["segments"].is_object()) {
+            for (const auto& [key, value] : j["segments"].items()) {
+                ft_status->segments[key] = segment_status::from_json(value);
             }
         }
 
         return ft_status;
     }
 
-    file_transfer_status(const file_transfer_status &ft_status): source_file(ft_status.source_file),
-                                                                 destination_file(ft_status.destination_file),
-                                                                 total_size(ft_status.total_size),
-                                                                 total_copied_(ft_status.get_total_copied()),
-                                                                 checksum(ft_status.checksum) {
+    file_transfer_status(file_transfer_status &ft_status): source_file(ft_status.source_file),
+                                                           destination_file(ft_status.destination_file),
+                                                           total_size(ft_status.total_size),
+                                                           checksum(ft_status.checksum),
+                                                           total_copied_(ft_status.get_total_copied()) {
         segments.reserve(ft_status.segments.size());
 
-        for (auto segment: ft_status.segments) {
-            segments.push_back(std::move(segment));
+        for (auto [id, segment]: ft_status.segments) {
+            segments[id] = std::move(segment);
         }
     }
 };
@@ -227,9 +243,9 @@ inline std::string compute_checksum(const std::string &path, const file_size_t &
     return res.str();
 }
 
-file_transfer_status get_transfer_status(const ts_config &config, logger &s_logger, const int& thread_count);
+file_transfer_status get_transfer_status(const ts_config &config, const std::string& filename, logger &s_logger, const unsigned int &thread_count);
 
-std::pair<file_size_t, file_size_t> get_segment_size(const file_size_t& file_size, const int& thread_count);
+std::pair<file_size_t, file_size_t> get_segment_size(const file_size_t &file_size, const int &thread_count);
 
 inline void prepare_target_file(const std::string &path, const file_size_t &file_size) {
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
@@ -241,6 +257,16 @@ inline void prepare_target_file(const std::string &path, const file_size_t &file
     file.write("", 1);
 }
 
-void write_segments(const file_transfer_status &status);
+inline nlohmann::json get_json(const std::filesystem::path& path) {
+    std::ifstream file(path);
+    if (!file || !file.is_open()) {
+        throw std::runtime_error("Failed to open file");
+    }
+    nlohmann::json result;
+    file >> result;
+    return result;
+}
+
+void write_segments(std::shared_ptr<file_transfer_status> &status);
 
 #endif

@@ -29,4 +29,7 @@ constexpr file_size_t MAX_BUF_SIZE = convert_to_bytes(60, GB_UNIT);
 constexpr file_size_t BASELINE_BUF_SIZE = convert_to_bytes(4, MB_UNIT);
 constexpr double HIGH_LATENCY_NS = 20e6;
 
+constexpr file_size_t UPDATE_THRESHOLD = convert_to_bytes(5, MB_UNIT);
+constexpr file_size_t CONFIG_UPDATE_THRESHOLD = convert_to_bytes(5, MB_UNIT);
+
 #endif

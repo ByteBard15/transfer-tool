@@ -29,6 +29,10 @@ struct ts_config {
     }
 };
 
+inline std::string get_config_filename(const std::string& filename, const std::string& checksum) {
+    return filename + "_" + checksum;
+}
+
 inline std::ostream& operator<<(std::ostream& os, const ts_config& cfg) {
     os << cfg.to_string();
     return os;

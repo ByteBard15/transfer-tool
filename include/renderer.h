@@ -57,8 +57,8 @@ struct r_frame {
     file_size_t w_speed;
 
     r_frame() = default;
-    r_frame(std::string seg, const file_size_t c, const file_size_t t, const file_size_t r, const file_size_t w)
-        : segment_id(std::move(seg)), copied(c), total(t), r_speed(r), w_speed(w) {}
+    r_frame(std::string seg, const file_size_t copied, const file_size_t total, const file_size_t r_speed, const file_size_t w_speed)
+        : segment_id(std::move(seg)), copied(copied), total(total), r_speed(r_speed), w_speed(w_speed) {}
 };
 
 struct view_segment {
@@ -142,18 +142,18 @@ private:
         return item;
     }
 
-    static inline std::string get_readable_speed(const file_size_t bytes_per_sec) {
+    static std::string get_readable_speed(const file_size_t bytes_per_sec, const char* suffix = "/s") {
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(2);
 
         if (bytes_per_sec >= GB_UNIT) {
-            oss << static_cast<double>(bytes_per_sec) / GB_UNIT << " GB/s";
+            oss << static_cast<double>(bytes_per_sec) / GB_UNIT << " GB" << suffix;
         } else if (bytes_per_sec >= MB_UNIT) {
-            oss << static_cast<double>(bytes_per_sec) / MB_UNIT << " MB/s";
+            oss << static_cast<double>(bytes_per_sec) / MB_UNIT << " MB" << suffix;
         } else if (bytes_per_sec >= KB_UNIT) {
-            oss << static_cast<double>(bytes_per_sec) / KB_UNIT << " KB/s";
+            oss << static_cast<double>(bytes_per_sec) / KB_UNIT << " KB" << suffix;
         } else {
-            oss << bytes_per_sec << " B/s";
+            oss << bytes_per_sec << " B" << suffix;
         }
 
         return oss.str();
@@ -194,7 +194,7 @@ private:
             std::cout << "[" << filled << empty << "] " << std::flush;
             if (frame->total > 0) {
                 double pct = (100.0 * static_cast<double>(frame->copied)) / static_cast<double>(frame->total);
-                std::cout << static_cast<int>(pct) << "%" << std::flush;
+                std::cout << static_cast<int>(pct) << "%" << " (" << get_readable_speed(frame->copied, "") << "/" << get_readable_speed(frame->total, "") << ")" << std::flush;
             } else {
                 std::cout << "??%" << std::flush;
             }
@@ -217,6 +217,7 @@ private:
 
             render(std::move(frame), seg);
         }
+        move_cursor(c_start_row + 1, c_start_col);
         show_cursor();
     }
 
